@@ -43,6 +43,29 @@ jobs:
           echo "HEL_ENVHC = [${HEL_ENVHC}]  (set: ${HEL_ENVHC+yes})"
           echo "HELLO_ENVHQ is set: ${HELLO_ENVHQ+yes}"
 
+      - name: "1b · same typo, listed in required"
+        id: typo_required
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+          required: HEL_ENVHC
+
+      - name: "1c · correct name listed in required"
+        id: right_required
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+          required: |
+            HELLO_ENVHQ
+
       - name: "2 · environment that doesn't exist"
         id: no_env
         continue-on-error: true
@@ -136,6 +159,8 @@ jobs:
           RESULTS: |
             1 typo: load                 success  ${{ steps.typo_load.outcome }}
             1 typo: read                 success  ${{ steps.typo_read.outcome }}
+            1b typo, required             failure  ${{ steps.typo_required.outcome }}
+            1c right name, required       success  ${{ steps.right_required.outcome }}
             2 missing environment        failure  ${{ steps.no_env.outcome }}
             3 missing project (id)       failure  ${{ steps.no_project_id.outcome }}
             4 missing project (name)     failure  ${{ steps.no_project_name.outcome }}
