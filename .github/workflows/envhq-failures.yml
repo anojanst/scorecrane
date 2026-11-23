@@ -146,7 +146,7 @@ jobs:
             9 out-of-scope environment   failure  ${{ steps.out_of_scope.outcome || 'skipped' }}
         run: |
           printf '%-28s %-9s %-9s\n' SCENARIO EXPECTED GOT
-          awk '{ got=$NF; want=$(NF-1); $NF=""; $(NF-1)=""; sub(/ +$/, "");
+          awk 'NF == 0 { next } { got=$NF; want=$(NF-1); $NF=""; $(NF-1)=""; sub(/ +$/, "");
                  mark = (got == want || got == "skipped") ? "ok" : "UNEXPECTED"; if (mark != "ok") bad=1;
                  printf "%-28s %-9s %-9s %s\n", $0, want, got, mark }
                END { exit bad }' <<< "$RESULTS"
