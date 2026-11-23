@@ -1,0 +1,156 @@
+name: EnvHQ failure scenarios
+
+# Every way a misconfigured pipeline can go wrong, run against
+# envhq/envhq-action@v1. Each scenario is allowed to fail (continue-on-error);
+# the last step checks each one ended the way it should and fails the job if
+# any didn't. Read each scenario's own log for the message a user would see.
+# Uses the same secrets/vars as envhq-test.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      other_environment:
+        description: An environment in the same project that the deploy key is NOT scoped to (leave empty to skip)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  failures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # 1. Typo in the variable name: the load succeeds; the job reads a name
+      #    that isn't there.
+      - name: "1 · load (ok), then read a misspelled name"
+        id: typo_load
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+      - name: "1 · what the job sees for HEL_ENVHC"
+        id: typo_read
+        continue-on-error: true
+        run: |
+          echo "HEL_ENVHC = [${HEL_ENVHC}]  (set: ${HEL_ENVHC+yes})"
+          echo "HELLO_ENVHQ is set: ${HELLO_ENVHQ+yes}"
+
+      - name: "2 · environment that doesn't exist"
+        id: no_env
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: does-not-exist
+
+      - name: "3 · project id that doesn't exist"
+        id: no_project_id
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: 00000000-0000-4000-8000-000000000000
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+
+      - name: "4 · project name that doesn't exist"
+        id: no_project_name
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: no-such-project
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+
+      - name: "5 · invalid token"
+        id: bad_token
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: envhq_not-a-real-token
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+
+      - name: "6 · deploy key that isn't a deploy key"
+        id: garbage_key
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: not-a-deploy-key
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+
+      - name: "7 · make a well-formed key that was never issued"
+        id: foreign
+        run: |
+          k=$(node -e 'const c=require("crypto");const b=()=>c.randomBytes(32).toString("base64");console.log(`envhq_dk_v1.${b()}.${b()}`)')
+          echo "::add-mask::$k"
+          echo "key=$k" >> "$GITHUB_OUTPUT"
+      - name: "7 · right token, key from somewhere else"
+        id: wrong_key
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: ${{ steps.foreign.outputs.key }}
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+
+      - name: "8 · missing secret (empty token)"
+        id: empty_token
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN_THAT_WAS_NEVER_SET }}
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+
+      - name: "9 · environment the key isn't scoped to"
+        id: out_of_scope
+        if: inputs.other_environment != ''
+        continue-on-error: true
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: ${{ inputs.other_environment }}
+
+      - name: Check every scenario ended as expected
+        if: always()
+        env:
+          RESULTS: |
+            1 typo: load                 success  ${{ steps.typo_load.outcome }}
+            1 typo: read                 success  ${{ steps.typo_read.outcome }}
+            2 missing environment        failure  ${{ steps.no_env.outcome }}
+            3 missing project (id)       failure  ${{ steps.no_project_id.outcome }}
+            4 missing project (name)     failure  ${{ steps.no_project_name.outcome }}
+            5 invalid token              failure  ${{ steps.bad_token.outcome }}
+            6 malformed deploy key       failure  ${{ steps.garbage_key.outcome }}
+            7 key not issued             failure  ${{ steps.wrong_key.outcome }}
+            8 missing secret             failure  ${{ steps.empty_token.outcome }}
+            9 out-of-scope environment   failure  ${{ steps.out_of_scope.outcome || 'skipped' }}
+        run: |
+          bad=0
+          printf '%-30s %-9s %s\n' SCENARIO EXPECTED GOT
+          while read -r line; do
+            [ -z "$line" ] && continue
+            got=${line##* }; rest=${line% *}; want=${rest##* }; name=$(echo "${rest% *}" | sed 's/ *$//')
+            mark=ok; if [ "$got" != "$want" ] && [ "$got" != skipped ]; then mark=UNEXPECTED; bad=1; fi
+            printf '%-30s %-9s %-9s %s\n' "$name" "$want" "$got" "$mark"
+          done <<< "$RESULTS"
+          exit $bad
