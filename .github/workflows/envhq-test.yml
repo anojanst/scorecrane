@@ -1,0 +1,39 @@
+name: EnvHQ secret test
+
+# Smoke test for envhq/envhq-action: load an EnvHQ environment on the runner
+# and print a secret. Nothing is built or deployed.
+#
+# Setup (repo → Settings → Secrets and variables → Actions):
+#   secrets  ENVHQ_TOKEN, ENVHQ_DEPLOY_KEY  — from EnvHQ → project → Deploy keys
+#   vars     ENVHQ_PROJECT, ENVHQ_ENVIRONMENT — e.g. scorecrane / dev
+#   The environment must contain HELLO_ENVHQ (use a dummy value: this repo's
+#   logs are public, and masking is what's being tested).
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Load secrets from EnvHQ
+        uses: envhq/envhq-action@v1
+        with:
+          token: ${{ secrets.ENVHQ_TOKEN }}
+          key: ${{ secrets.ENVHQ_DEPLOY_KEY }}
+          project: ${{ vars.ENVHQ_PROJECT }}
+          environment: ${{ vars.ENVHQ_ENVIRONMENT }}
+
+      - name: Print the secret
+        run: |
+          test -n "$HELLO_ENVHQ" || { echo "HELLO_ENVHQ is missing"; exit 1; }
+          echo "HELLO_ENVHQ = $HELLO_ENVHQ"            # masked: prints ***
+          echo "length      = ${#HELLO_ENVHQ}"
+          echo "sha256      = $(printf %s "$HELLO_ENVHQ" | sha256sum | cut -c1-12)…"
