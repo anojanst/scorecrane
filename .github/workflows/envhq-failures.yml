@@ -145,12 +145,8 @@ jobs:
             8 missing secret             failure  ${{ steps.empty_token.outcome }}
             9 out-of-scope environment   failure  ${{ steps.out_of_scope.outcome || 'skipped' }}
         run: |
-          bad=0
-          printf '%-30s %-9s %s\n' SCENARIO EXPECTED GOT
-          while read -r line; do
-            [ -z "$line" ] && continue
-            got=${line##* }; rest=${line% *}; want=${rest##* }; name=$(echo "${rest% *}" | sed 's/ *$//')
-            mark=ok; if [ "$got" != "$want" ] && [ "$got" != skipped ]; then mark=UNEXPECTED; bad=1; fi
-            printf '%-30s %-9s %-9s %s\n' "$name" "$want" "$got" "$mark"
-          done <<< "$RESULTS"
-          exit $bad
+          printf '%-28s %-9s %-9s\n' SCENARIO EXPECTED GOT
+          awk '{ got=$NF; want=$(NF-1); $NF=""; $(NF-1)=""; sub(/ +$/, "");
+                 mark = (got == want || got == "skipped") ? "ok" : "UNEXPECTED"; if (mark != "ok") bad=1;
+                 printf "%-28s %-9s %-9s %s\n", $0, want, got, mark }
+               END { exit bad }' <<< "$RESULTS"
